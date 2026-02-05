@@ -7,6 +7,7 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def send_message(text):
+    """텔레그램 메시지 전송 함수"""
     if TOKEN and CHAT_ID:
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={text}"
         try:
@@ -20,6 +21,7 @@ try:
     print(f"--- {target_date} 데이터 호출 테스트 시작 ---")
 
     # 2. 데이터 수집 (KOSPI 고유 코드 1001 사용)
+    # fundamental은 PBR을, ohlcv는 지수 종가를 가져옵니다.
     df_f = stock.get_index_fundamental(target_date, target_date, "1001")
     df_o = stock.get_index_ohlcv_by_date(target_date, target_date, "1001")
 
@@ -35,7 +37,7 @@ try:
         message += f"📊 PBR: {current_pbr:.2f}\n"
         message += f"────────────────\n"
 
-        # 후니님의 0.8/1.3 원칙 반영
+        # 후니님의 투자 원칙 반영
         if current_pbr <= 0.8:
             message += "🔥 적극 매수 권장 구간입니다."
         elif current_pbr > 1.3:
@@ -49,7 +51,6 @@ try:
         print(f"데이터 없음: {target_date}의 데이터를 거래소에서 가져오지 못했습니다.")
 
 except Exception as e:
-    # 상세 에러 로그 출력
+    # 상세 에러 로그 출력 (GitHub Actions 로그에서 확인 가능)
     error_log = f"❌ 시스템 오류 발생: {str(e)}"
-    print(error_log)
     send_message(error_log)
