@@ -2,35 +2,31 @@ name: KOSPI PBR Monitor
 
 on:
   schedule:
-    # 1. 자동 실행 설정: 월~금요일 한국 시간 오후 4시 (UTC 07:00)
-    # GitHub Actions는 UTC 기준이므로 한국 시간에서 9시간을 뺍니다.
-    - cron: '0 8 * * 1-5'
-  workflow_dispatch:
-    # 2. 수동 실행 버튼: Actions 탭에서 직접 'Run workflow'를 누를 수 있게 해줍니다.
+    # 한국 시간 오후 6시 5분 (UTC 09:05) 실행
+    # 데이터 확정 이후 안정적인 수집을 위해 시간을 늦춤
+    - cron: '5 9 * * 1-5'
+  workflow_dispatch: # 수동 실행 기능 유지
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 저장소의 코드를 가상 환경으로 가져옵니다.
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      # 파이썬 환경을 설정합니다.
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-      # 필요한 라이브러리를 설치합니다.
-      - name: Install dependencies
-        run: |
-          pip install finance-datareader requests
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pykrx requests pandas
 
-      # 파이썬 스크립트를 실행하며 Secrets 값을 환경 변수로 전달합니다.
-      - name: Run Python script
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python monitor.py
+    - name: Run script
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: python monitor.py
