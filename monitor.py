@@ -2,15 +2,15 @@ import requests
 import pandas as pd
 import os
 
-# 1. 환경 변수 로드
+# 환경 변수 로드
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 KOSIS_API_URL = os.environ.get('KOSIS_API_URL')
 
 def send_message(text):
-    """Markdown 모드를 사용하여 고정 폭 글꼴 적용"""
+    """Markdown 모드를 사용하여 표 정렬 유지"""
     if TOKEN and CHAT_ID:
-        url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TOKEN}/sendMessage"
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         params = {
             "chat_id": CHAT_ID,
             "text": text,
@@ -29,6 +29,7 @@ def get_pbr_data():
     try:
         response = requests.get(KOSIS_API_URL, timeout=15)
         df = pd.DataFrame(response.json())
+        # 'KOSPI' 또는 '코스피' 대응
         df_kospi = df[df['C1_NM'].isin(['KOSPI', '코스피'])].copy()
         df_kospi['DT'] = pd.to_numeric(df_kospi['DT'], errors='coerce')
         df_kospi['PRD_DE'] = pd.to_datetime(df_kospi['PRD_DE'], format='%Y%m', errors='coerce')
@@ -42,13 +43,12 @@ try:
     if error_msg:
         send_message(error_msg)
     else:
-        # 최근 5개월 최신순
+        # 최근 5개월 최신순 정렬
         recent_df = df.tail(5).iloc[::-1]
         
-        # 메시지 헤더 (볼드체 적용)
         message = "📢 *[투자 비서] KOSPI PBR 리포트*\n\n"
         
-        # 💡 표 전체를 고정 폭 코드 블록으로 묶기
+        # 💡 표 전체를 코드 블록(```)으로 묶어 고정 폭 글꼴 적용
         table = "월별  | PBR  | 판단\n"
         table += "------|------|------\n"
         
@@ -56,7 +56,7 @@ try:
             month = row['PRD_DE'].strftime('%y.%m')
             pbr = row['DT']
             
-            # 후니님의 0.8/1.3 기준 적용
+            # 투자 구간 판단
             if pbr <= 0.8:
                 zone = "🔥매수"
             elif pbr > 1.3:
@@ -64,13 +64,10 @@ try:
             else:
                 zone = "✅중립"
             
-            # 간격 최적화 (PBR은 소수점 2자리)
+            # f-string 정렬로 칸 맞춤
             table += f"{month} | {pbr:>4.2f} | {zone}\n"
         
-        # 표 완성
         message += f"```\n{table}```\n"
-        
-        # 하단 정보 및 직관적인 링크
         message += "💡 *기준: 0.8이하(매수) / 1.3이상(매도)*\n"
         message += "────────────────\n"
         message += "🔍 *[당일 KOSPI PBR 확인]* (로그인 필요)\n"
