@@ -1,7 +1,6 @@
-import FinanceDataReader as fdr
+from pykrx import stock
+from datetime import datetime, timedelta
 import requests
-from bs4 import BeautifulSoup
-from datetime import datetime
 import os
 
 # 환경 변수 로드
@@ -16,51 +15,62 @@ def send_message(text):
         except Exception as e:
             print(f"전송 실패: {e}")
 
-def get_kospi_pbr_naver():
-    """네이버 금융에서 코스피 PBR을 직접 파싱 (GitHub 환경에서 가장 안정적)"""
-    url = "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
+def get_pbr_safe(target_date):
+    """지명 에러를 방지하기 위해 예외 처리가 강화된 데이터 수집 함수"""
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        # 네이버 금융 페이지 내 PBR 데이터 위치 추출
-        pbr_element = soup.find('td', {'id': 'pbr'})
-        if pbr_element:
-            return float(pbr_element.get_text())
-    except Exception as e:
-        print(f"PBR 파싱 실패: {e}")
-    return None
+        # 1001: 코스피 지수 고유 코드
+        df_f = stock.get_index_fundamental(target_date, target_date, "1001")
+        df_o = stock.get_index_ohlcv_by_date(target_date, target_date, "1001")
+        
+        if df_f is not None and not df_f.empty and 'PBR' in df_f.columns:
+            pbr = float(df_f['PBR'].iloc[-1])
+            idx = float(df_o['종가'].iloc[-1]) if not df_o.empty else 0.0
+            if pbr > 0: # PBR이 0보다 커야 유효한 데이터로 간주
+                return idx, pbr
+    except:
+        pass
+    return None, None
 
 try:
-    # 1. 코스피 지수 가져오기 (FinanceDataReader)
-    df = fdr.DataReader('KS11')
-    current_index = float(df['Close'].iloc[-1])
+    now = datetime.now()
     
-    # 2. 코스피 PBR 가져오기 (네이버 크롤링 fallback)
-    current_pbr = get_kospi_pbr_naver()
-
-    if current_pbr is not None:
-        # 3. 메시지 구성
-        message = f"📢 [후니의 비서] KOSPI 리포트\n"
-        message += f"────────────────\n"
-        message += f"📉 현재 지수: {current_index:,.2f}\n"
-        message += f"📊 현재 PBR: {current_pbr:.2f}\n" # 소수점 둘째 자리 적용
-        message += f"────────────────\n"
-
-        # 투자 원칙 적용: 0.8 이하 적극매수 / 1.3 초과 매도
-        if current_pbr <= 0.8:
-            message += "🔥 [적극 매수] 시장이 저평가 상태입니다. 비중 확대를 검토하세요!"
-        elif current_pbr > 1.3:
-            message += "⚠️ [위험/매도] 역사적 고점 도달! 수익 실현 및 리스크 관리가 필요합니다."
-        else:
-            message += "✅ [중립/관망] 정상 범위 내에 있습니다."
+    # 주말(토:5, 일:6)이면 실행하지 않고 종료
+    if now.weekday() >= 5:
+        print("오늘은 주말입니다. 리포트를 발송하지 않습니다.")
     else:
-        message = "❌ 시스템 알림: PBR 데이터를 수집할 수 없습니다. 소스 페이지 구조를 확인해주세요."
+        print("평일 리포트 생성을 시작합니다.")
+        current_index, current_pbr = None, None
+        display_date = ""
 
-    send_message(message)
+        # 전날부터 시작해서 최대 10일 전까지 가장 최근 영업일 데이터를 탐색
+        for i in range(1, 11):
+            check_date = (now - timedelta(days=i)).strftime("%Y%m%d")
+            idx, pbr = get_pbr_safe(check_date)
+            
+            if pbr is not None:
+                current_index, current_pbr = idx, pbr
+                display_date = f"{check_date[4:6]}/{check_date[6:8]}"
+                break
+
+        if current_pbr:
+            message = f"📢 [후니의 비서] KOSPI 리포트\n"
+            message += f"────────────────\n"
+            message += f"📅 기준일: {display_date} (최근 영업일)\n"
+            message += f"📉 지수: {current_index:,.2f}\n"
+            message += f"📊 PBR: {current_pbr:.2f}\n" # 소수점 둘째 자리 적용
+            message += f"────────────────\n"
+
+            # 투자 원칙 적용
+            if current_pbr <= 0.8:
+                message += "🔥 [적극 매수] 시장이 저평가 상태입니다."
+            elif current_pbr > 1.3:
+                message += "⚠️ [위험/매도] 역사적 고점 도달! 주의하세요."
+            else:
+                message += "✅ [중립/관망] 정상 범위 내에 있습니다."
+            
+            send_message(message)
+        else:
+            print("최근 영업일 데이터를 찾을 수 없습니다. (거래소 점검 등)")
 
 except Exception as e:
-    send_message(f"❌ 실행 오류 발생: {str(e)}")
+    print(f"실행 중 오류 발생: {e}")
