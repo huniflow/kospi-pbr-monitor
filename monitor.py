@@ -2,7 +2,7 @@ import FinanceDataReader as fdr
 import requests
 import os
 
-# 1. 환경 변수 로드
+# 1. 환경 변수 로드 (GitHub Secrets 연동)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
@@ -11,36 +11,35 @@ def send_message(text):
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={text}"
         requests.get(url)
 
-# 2. 데이터 가져오기 (KRX 전체 종목 리스트 및 지수 정보)
+# 2. 실시간 데이터 수집 및 분석
 try:
-    # 'KRX'는 유가증권, 코스닥, 코넥스를 모두 포함합니다.
-    df = fdr.StockListing('KRX')
+    # KRX 전체 종목/지수 리스트 수집
+    df_krx = fdr.StockListing('KRX')
     
-    # 지수 정보를 직접 가져오는 함수로 대체 (더 확실한 방법)
-    # 코스피(KOSPI)의 현재 지수와 PBR 데이터 추출
-    # FinanceDataReader의 최신 규격에 맞춰 지수 데이터를 가져옵니다.
-    kospi_index = fdr.DataReader('KS11') # KOSPI 지수
-    current_index = float(kospi_index['Close'].iloc[-1])
+    # 코스피(KOSPI) 행 데이터만 추출
+    kospi_row = df_krx[df_krx['Name'] == 'KOSPI']
     
-    # PBR 데이터의 경우 StockListing에서 제공하는 값을 사용하거나 
-    # 고정된 로직으로 계산이 필요할 수 있습니다. 
-    # 여기서는 후니님의 차트 기반 분석 수치(1.35)를 예시로 로직을 구성합니다.
-    # (참고: 실시간 PBR은 거래소 제공 데이터 스펙에 따라 달라질 수 있음)
-    
-    # 예시를 위해 최근 차트에서 확인된 PBR 1.35를 기준으로 조건문을 태웁니다.
-    # 실제 운영 시에는 fdr에서 제공하는 지표 컬럼명을 확인하여 매칭하세요.
-    current_pbr = 1.35 # 테스트를 위해 현재 차트 수치 반영
-    
-    message = f"현재 KOSPI 지수: {current_index:.2f}\n현재 예상 PBR: {current_pbr}\n\n"
+    # 실시간 지수 및 PBR 값 추출
+    current_index = float(kospi_row['ClosingPrice'].values[0])
+    current_pbr = float(kospi_row['PBR'].values[0])
 
+    # 3. 투자 원칙(PBR 0.8 / 1.3)에 따른 메시지 구성
+    message = f"📢 [KOSPI PBR 비서] 실시간 KOSPI 브리핑\n"
+    message += f"────────────────\n"
+    message += f"📉 현재 지수: {current_index:,.2f}\n"
+    message += f"📊 현재 PBR: {current_pbr}\n"
+    message += f"────────────────\n"
+
+    # 후니님의 매수/매도 규칙 적용
     if current_pbr <= 0.8:
-        message += "🚨 [적극 매수] PBR 0.8 이하! 저평가 구간입니다."
+        message += "🔥 [적극 매수] 시장이 매우 저렴합니다. 비중 확대를 검토하세요!"
     elif current_pbr > 1.3:
-        message += "⚠️ [관리/매도] PBR 1.3 초과! 역사적 고점 부근입니다."
+        message += "⚠️ [위험/매도] 역사적 고점 도달! 수익 실현 및 리스크 관리가 필요합니다."
     else:
-        message += "✅ [관망/중립] 정상 범위 내에 있습니다."
+        message += "⚖️ [중립/관망] 정상 범위 내에 있습니다. 시장 상황을 지켜보세요."
 
     send_message(message)
 
 except Exception as e:
-    send_message(f"스크립트 실행 중 에러 발생: {str(e)}")
+    # 에러 발생 시 텔레그램으로 즉시 보고 (TPO의 위기 대응)
+    send_message(f"❌ 모니터링 시스템 오류 발생: {str(e)}")
