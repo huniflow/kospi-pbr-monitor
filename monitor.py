@@ -3,52 +3,39 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# 환경 변수 로드
+# 1. 환경 변수 로드 (GitHub Secrets에서 관리)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 KOSIS_API_URL = os.environ.get('KOSIS_API_URL')
 
 def send_message(text):
+    """텔레그램 메시지 전송 (미리보기 비활성화)"""
     if TOKEN and CHAT_ID:
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={text}&disable_web_page_preview=true"
-        requests.get(url, timeout=10)
+        try:
+            requests.get(url, timeout=10)
+        except Exception as e:
+            print(f"텔레그램 전송 에러: {e}")
 
 def get_pbr_data():
+    """KOSIS API 데이터 수집 및 정제"""
     if not KOSIS_API_URL:
         return "❌ 에러: GitHub Secrets에 KOSIS_API_URL이 설정되지 않았습니다.", None
     
     try:
         response = requests.get(KOSIS_API_URL, timeout=15)
-        
-        # 🛡️ 디버깅 포인트 1: 응답 상태 코드 확인
         if response.status_code != 200:
-            return f"❌ API 서버 응답 에러 (Status: {response.status_code})", None
-            
-        # 🛡️ 디버깅 포인트 2: 결과값이 비어있는지 확인
-        raw_text = response.text.strip()
-        if not raw_text:
-            return "❌ API 응답이 비어있습니다. (URL을 다시 확인해주세요)", None
+            return f"❌ API 호출 실패 (Status: {response.status_code})", None
             
         json_data = response.json()
-        
-        # 🛡️ 디버깅 포인트 3: KOSIS 특유의 에러 메시지 처리
-        if isinstance(json_data, dict) and "err" in str(json_data).lower():
-            return f"❌ KOSIS API 내부 에러: {json_data}", None
-
         df = pd.DataFrame(json_data)
         
-        # 🛡️ 디버깅 포인트 4: 데이터 필터링 확인
-        if 'C1_NM' not in df.columns:
-            return f"❌ 데이터 구조 오류: 'C1_NM' 컬럼이 없습니다. (받은 데이터: {raw_text[:100]}...)", None
-            
-        df_kospi = df[df['C1_NM'] == 'KOSPI'].copy()
+        # 'KOSPI' 또는 '코스피' 항목 필터링 (방어로직)
+        df_kospi = df[df['C1_NM'].isin(['KOSPI', '코스피'])].copy()
         if df_kospi.empty:
-            # 💡 팁: 'KOSPI'가 아니라 '코스피'로 들어올 수도 있습니다.
-            df_kospi = df[df['C1_NM'] == '코스피'].copy()
+            return "❌ 데이터 내 KOSPI 항목을 찾을 수 없습니다.", None
             
-        if df_kospi.empty:
-            return "❌ KOSPI 항목을 찾을 수 없습니다. (C1_NM 값을 확인하세요)", None
-            
+        # 데이터 정제: 숫자 변환 및 날짜 형식 변환
         df_kospi['DT'] = pd.to_numeric(df_kospi['DT'], errors='coerce')
         df_kospi['PRD_DE'] = pd.to_datetime(df_kospi['PRD_DE'], format='%Y%m', errors='coerce')
         
@@ -58,35 +45,43 @@ def get_pbr_data():
         return f"❌ 시스템 오류: {str(e)}", None
 
 try:
+    print("--- PBR 시계열 분석 리포트 생성 시작 ---")
+    
+    # 데이터 가져오기
     error_msg, df = get_pbr_data()
     
     if error_msg:
         print(error_msg)
-        send_message(error_msg) # 텔레그램으로도 에러 내용을 쏩니다.
+        send_message(error_msg)
     else:
-        # 데이터가 정상일 경우 리포트 생성
-        current_pbr = df['DT'].iloc[-1]
-        last_month = df['PRD_DE'].iloc[-1].strftime('%Y년 %m월')
-        high_12m = df['DT'].max()
-        low_12m = df['DT'].min()
+        # 최근 5개월 추출 (최신순 정렬)
+        recent_df = df.tail(5).iloc[::-1]
         
-        message = f"📢 [후니의 투자 비서] PBR 리포트\n"
+        # 메시지 구성
+        message = f"📢 [투자 비서] KOSPI PBR 추이 리포트\n"
         message += f"────────────────\n"
-        message += f"📅 최근 기준일: {last_month}\n"
-        message += f"📊 KOSPI PBR: {current_pbr:.2f}\n"
-        message += f"────────────────\n"
-        message += f"📈 12M 최고: {high_12m:.2f}\n"
-        message += f"📉 12M 최저: {low_12m:.2f}\n"
-        message += f"────────────────\n"
+        message += " 월별   |  PBR  |  투자 구간\n"
+        message += "───────|───────|────────\n"
         
-        if current_pbr <= 0.8:
-            message += "🔥 [상태: 적극 매수]\n"
-        elif current_pbr > 1.3:
-            message += "⚠️ [상태: 위험/매도]\n"
-        else:
-            message += "✅ [상태: 관망/중립]\n"
+        for _, row in recent_df.iterrows():
+            month = row['PRD_DE'].strftime('%y.%m')
+            pbr = row['DT']
+            
+            # 투자 구간 판단 로직 (0.8 / 1.3)
+            if pbr <= 0.8:
+                zone = "🔥 적극매수"
+            elif pbr > 1.3:
+                zone = "⚠️ 위험매도"
+            else:
+                zone = "✅ 중립관망"
+                
+            message += f"{month}  |  {pbr:.2f}  |  {zone}\n"
             
         message += f"────────────────\n"
+        message += f"💡 기준: 0.8이하(매수) / 1.3이상(매도)\n"
+        message += f"────────────────\n"
+        
+        # 직관적인 당일 확인 링크
         message += f"🔍 [당일 KOSPI PBR 확인] (로그인 필요)\n"
         message += f"https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201"
 
@@ -94,4 +89,4 @@ try:
         print("✅ 리포트 발송 성공")
 
 except Exception as e:
-    print(f"❌ 실행 중 오류: {e}")
+    print(f"❌ 실행 오류: {e}")
