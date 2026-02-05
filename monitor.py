@@ -1,9 +1,10 @@
-from pykrx import stock
-from datetime import datetime, timedelta
+import FinanceDataReader as fdr
 import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
 import os
-import time
 
+# 환경 변수 로드
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
@@ -15,66 +16,38 @@ def send_message(text):
         except Exception as e:
             print(f"전송 실패: {e}")
 
-def get_safe_data(target_date):
-    """라이브러리 내부 에러를 방지하고 상세 로그를 남기는 함수"""
+def get_kospi_pbr():
+    """네이버 금융에서 코스피 PBR을 직접 파싱 (GitHub 환경에서 가장 안정적)"""
+    url = "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    
     try:
-        # 서버 부하를 줄이기 위해 3초 대기
-        time.sleep(3) 
-        
-        # 1. 펀더멘털 데이터 수집 (KOSPI=1001)
-        df_f = stock.get_index_fundamental(target_date, target_date, "1001")
-        
-        # 데이터가 비어있는지 로깅 (GitHub Actions 로그에서 확인 가능)
-        if df_f is None or df_f.empty:
-            print(f"로그: {target_date} PBR 데이터가 비어있습니다.")
-            return None, None
-            
-        if 'PBR' not in df_f.columns:
-            print(f"로그: {target_date} 데이터에 'PBR' 컬럼이 없습니다.")
-            return None, None
-
-        pbr = float(df_f['PBR'].iloc[-1])
-        
-        # 2. 지수 종가 데이터 수집
-        df_o = stock.get_index_ohlcv_by_date(target_date, target_date, "1001")
-        index = float(df_o['종가'].iloc[-1]) if (df_o is not None and not df_o.empty) else 0.0
-        
-        return index, pbr
+        resp = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        # 네이버 금융의 PBR 위치를 찾아냅니다.
+        pbr_text = soup.find('td', {'id': 'pbr'}).get_text()
+        return float(pbr_text)
     except Exception as e:
-        print(f"로그: {target_date} 처리 중 에러 발생: {e}")
-    return None, None
+        print(f"PBR 파싱 실패: {e}")
+        return None
 
 try:
-    now = datetime.now()
-    today_str = now.strftime("%Y%m%d")
-    print(f"시스템 가동: {today_str} 데이터 수집 시도...")
+    # 1. 코스피 지수 가져오기 (FinanceDataReader 사용)
+    df = fdr.DataReader('KS11')
+    current_index = float(df['Close'].iloc[-1])
     
-    current_index, current_pbr = get_safe_data(today_str)
-    date_label = "오늘"
+    # 2. 코스피 PBR 가져오기 (네이버 크롤링)
+    current_pbr = get_kospi_pbr()
 
-    # 오늘 데이터가 없으면 최근 10일까지 끈질기게 추적
-    if current_pbr is None or current_pbr == 0:
-        print("오늘 데이터 수집 불가. 과거 데이터 탐색(Backtracking) 시작...")
-        for i in range(1, 11):
-            check_date = (now - timedelta(days=i)).strftime("%Y%m%d")
-            prev_index, prev_pbr = get_safe_data(check_date)
-            
-            if prev_pbr is not None and prev_pbr > 0:
-                current_index, current_pbr = prev_index, prev_pbr
-                date_label = f"최근({check_date[4:6]}/{check_date[6:8]})"
-                print(f"성공: {check_date} 데이터를 찾았습니다.")
-                break
-
-    if current_pbr and current_pbr > 0:
-        # 소수점 둘째 자리 포맷팅 적용
+    if current_pbr is not None:
+        # 3. 메시지 구성
         message = f"📢 [후니의 비서] KOSPI 리포트\n"
         message += f"────────────────\n"
-        message += f"📅 기준일: {date_label}\n"
-        message += f"📉 지표: {current_index:,.2f}\n"
-        message += f"📊 PBR: {current_pbr:.2f}\n"
+        message += f"📉 현재 지수: {current_index:,.2f}\n"
+        message += f"📊 현재 PBR: {current_pbr:.2f}\n" # 소수점 둘째 자리
         message += f"────────────────\n"
 
-        # 후니님의 0.8/1.3 투자 원칙 적용
+        # 투자 원칙 적용: 0.8 이하 매수 / 1.3 초과 매도
         if current_pbr <= 0.8:
             message += "🔥 [적극 매수] 시장이 저평가 상태입니다. 비중 확대를 검토하세요!"
         elif current_pbr > 1.3:
@@ -82,9 +55,9 @@ try:
         else:
             message += "✅ [중립/관망] 정상 범위 내에 있습니다."
     else:
-        message = "❌ 시스템 알림: 거래소 서버 응답 지연으로 데이터를 가져올 수 없습니다. 잠시 후 수동 실행(workflow_dispatch)을 권장합니다."
+        message = "❌ 시스템 알림: PBR 데이터를 수집할 수 없습니다. 네이버 금융 페이지 구조를 확인해주세요."
 
     send_message(message)
 
 except Exception as e:
-    send_message(f"❌ 최종 실행 오류: {str(e)}")
+    send_message(f"❌ 실행 오류 발생: {str(e)}")
