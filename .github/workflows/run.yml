@@ -4,7 +4,7 @@ on:
   schedule:
     # 1. 자동 실행 설정: 월~금요일 한국 시간 오후 4시 (UTC 07:00)
     # GitHub Actions는 UTC 기준이므로 한국 시간에서 9시간을 뺍니다.
-    - cron: '0 7 * * 1-5'
+    - cron: '5 7 * * 1-5'
   workflow_dispatch:
     # 2. 수동 실행 버튼: Actions 탭에서 직접 'Run workflow'를 누를 수 있게 해줍니다.
 
