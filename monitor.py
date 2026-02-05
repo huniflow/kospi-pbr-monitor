@@ -54,7 +54,7 @@ try:
 
     if current_pbr and current_pbr > 0:
         # 소수점 둘째 자리 포맷팅 적용
-        message = f"📢 [후니의 비서] KOSPI 리포트\n"
+        message = f"📢 KOSPI 리포트\n"
         message += f"────────────────\n"
         message += f"📅 기준일: {date_label}\n"
         message += f"📉 지표: {current_index:,.2f}\n"
