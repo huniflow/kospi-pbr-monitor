@@ -2,16 +2,18 @@ name: KOSPI PBR Monitor
 
 on:
   schedule:
-    # 한국 시간 평일 오후 6시 5분 (UTC 09:05)
+    # 한국 시간 평일 오후 6시 5분 (UTC 09:05) 실행
     - cron: '5 9 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v3
-    
+    - name: Checkout code
+      uses: actions/checkout@v3
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -20,11 +22,13 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # 새로 바뀐 로직에 필요한 라이브러리들입니다.
-        pip install finance-datareader beautifulsoup4 requests pandas
+        # 데이터 분석 및 통신에 필요한 패키지 설치
+        pip install requests pandas
 
     - name: Run script
       env:
+        # GitHub Secrets에 저장된 변수들을 환경 변수로 매핑합니다.
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        KOSIS_API_URL: ${{ secrets.KOSIS_API_URL }}
       run: python monitor.py
