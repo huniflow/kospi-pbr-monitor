@@ -12,30 +12,27 @@ def send_message(text):
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={text}"
         requests.get(url)
 
-# 2. 데이터 수집 및 예외 처리 로직
+# 2. 데이터 수집 및 예외 처리
 try:
-    # KRX 전체 시장 데이터 로드
-    df_krx = fdr.StockListing('KRX')
+    # KOSPI 지수 데이터를 직접 호출 (KS11은 코스피 지수의 심볼입니다)
+    df_kospi = fdr.DataReader('KS11')
     
-    # 코스피(KOSPI) 행 추출
-    kospi_row = df_krx[df_krx['Name'] == 'KOSPI']
+    # KRX 전체 상장사 데이터를 통해 PBR 지표 추출
+    df_listing = fdr.StockListing('KRX')
     
-    if kospi_row.empty:
-        raise ValueError("KOSPI 데이터를 찾을 수 없습니다.")
+    if df_kospi.empty or df_listing.empty:
+        raise ValueError("데이터 원천으로부터 정보를 불러오지 못했습니다.")
 
-    # 데이터 추출 (NaN 값 대비)
-    raw_index = kospi_row['ClosingPrice'].values[0]
-    raw_pbr = kospi_row['PBR'].values[0]
-
-    # 데이터 존재 여부 확인 (TPO의 꼼꼼한 예외 처리)
-    if pd.isna(raw_index) or pd.isna(raw_pbr):
-        # 데이터가 비어있을 경우 (장외 시간 또는 거래소 업데이트 지연)
-        message = "⏳ 현재 실시간 데이터를 불러올 수 없습니다.\n(장외 시간이거나 거래소 데이터 업데이트 중입니다.)"
-    else:
-        current_index = float(raw_index)
-        current_pbr = float(raw_pbr)
-
-        # 3. 투자 원칙에 따른 메시지 구성
+    # 최신 종가 및 PBR 추출
+    current_index = float(df_kospi['Close'].iloc[-1])
+    
+    # KRX 리스트에서 KOSPI 지표 행 찾기 (이름이 'KOSPI' 또는 '코스피'일 수 있음)
+    kospi_info = df_listing[df_listing['Name'].str.contains('KOSPI|코스피', na=False)]
+    
+    if not kospi_info.empty and not pd.isna(kospi_info['PBR'].values[0]):
+        current_pbr = float(kospi_info['PBR'].values[0])
+        
+        # 3. 메시지 구성
         message = f"📢 KOSPI 리포트\n"
         message += f"────────────────\n"
         message += f"📉 현재 지수: {current_index:,.2f}\n"
@@ -48,9 +45,10 @@ try:
             message += "⚠️ [위험/매도] 역사적 고점 도달! 수익 실현 및 리스크 관리가 필요합니다."
         else:
             message += "⚖️ [중립/관망] 정상 범위 내에 있습니다."
+    else:
+        message = f"⏳ 지수는 {current_index:,.2f}이나, 현재 PBR 데이터를 산출할 수 없는 시간대입니다."
 
     send_message(message)
 
 except Exception as e:
-    # 예기치 못한 에러 발생 시 알림 (디버깅용)
-    send_message(f"❌ 시스템 알림: 데이터 처리 중 확인이 필요합니다.\n({str(e)})")
+    send_message(f"❌ 시스템 알림: 데이터 확인 필요\n({str(e)})")
