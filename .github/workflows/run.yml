@@ -2,7 +2,7 @@ name: KOSPI PBR Monitor
 
 on:
   schedule:
-    - cron: '5 9 * * 1-5' # 한국 시간 오후 6시 5분
+    - cron: '5 9 * * 1-5' # 한국 시간 오후 6시 5분 (UTC 09:05)
   workflow_dispatch:
 
 jobs:
