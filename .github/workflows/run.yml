@@ -5,29 +5,33 @@ on:
     # 한국 시간 오후 6시 5분 (UTC 09:05) 실행
     # 월요일부터 금요일까지(1-5) 작동합니다.
     - cron: '5 9 * * 1-5'
-  workflow_dispatch: # 수동 실행 기능 유지
+  workflow_dispatch: # Actions 탭에서 수동으로 즉시 실행 가능
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+    # 1. 현재 리포지토리의 최신 코드를 가상 환경으로 가져옵니다.
     - name: Checkout code
       uses: actions/checkout@v3
 
+    # 2. Python 3.9 환경을 설정합니다.
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
+    # 3. 네이버 크롤링 및 지수 수집에 필요한 라이브러리를 설치합니다.
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # '지수명' 에러 방지를 위해 pykrx를 항상 최신 버전으로 업데이트
-        pip install -U pykrx requests pandas
+        pip install finance-datareader beautifulsoup4 requests pandas
 
+    # 4. 모니터링 스크립트를 실행합니다.
     - name: Run script
       env:
+        # GitHub Settings -> Secrets에 등록한 값을 불러옵니다.
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: python monitor.py
